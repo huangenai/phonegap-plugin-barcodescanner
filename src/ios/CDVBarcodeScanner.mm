@@ -27,6 +27,10 @@
 // only performing a scan when you click the shutter button.  For testing.
 //------------------------------------------------------------------------------
 #define USE_SHUTTER 0
+#define QRCodeWidth  260.0//正方形二维码的边长
+#define SCREENWidth  [UIScreen mainScreen].bounds.size.width//设备屏幕的宽度
+#define SCREENHeight [UIScreen mainScreen].bounds.size.height//设备屏幕的高度
+
 
 //------------------------------------------------------------------------------
 @class CDVbcsProcessor;
@@ -142,8 +146,7 @@
 -(BOOL)isUsageDescriptionSet
 {
   NSDictionary * plist = [[NSBundle mainBundle] infoDictionary];
-  if ([plist objectForKey:@"NSCameraUsageDescription" ] ||
-      [[NSBundle mainBundle] localizedStringForKey: @"NSCameraUsageDescription" value: nil table: @"InfoPlist"]) {
+  if ([plist objectForKey:@"NSCameraUsageDescription" ]) {
     return YES;
   }
   return NO;
@@ -759,7 +762,7 @@ parentViewController:(UIViewController*)parentViewController
 - (void)viewWillAppear:(BOOL)animated {
 
     // set video orientation to what the camera sees
-    self.processor.previewLayer.connection.videoOrientation = [self interfaceOrientationToVideoOrientation:[UIApplication sharedApplication].statusBarOrientation];
+    self.processor.previewLayer.connection.videoOrientation = (AVCaptureVideoOrientation) [[UIApplication sharedApplication] statusBarOrientation];
 
     // this fixes the bug when the statusbar is landscape, and the preview layer
     // starts up in portrait (not filling the whole view)
@@ -774,7 +777,7 @@ parentViewController:(UIViewController*)parentViewController
     previewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
 
     if ([previewLayer.connection isVideoOrientationSupported]) {
-        previewLayer.connection.videoOrientation = [self interfaceOrientationToVideoOrientation:[UIApplication sharedApplication].statusBarOrientation];
+        [previewLayer.connection setVideoOrientation:[[UIApplication sharedApplication] statusBarOrientation]];
     }
 
     [self.view.layer insertSublayer:previewLayer below:[[self.view.layer sublayers] objectAtIndex:0]];
@@ -783,21 +786,6 @@ parentViewController:(UIViewController*)parentViewController
     [self startCapturing];
 
     [super viewDidAppear:animated];
-}
-
-- (AVCaptureVideoOrientation)interfaceOrientationToVideoOrientation:(UIInterfaceOrientation)orientation {
-    switch (orientation) {
-        case UIInterfaceOrientationPortrait:
-            return AVCaptureVideoOrientationPortrait;
-        case UIInterfaceOrientationPortraitUpsideDown:
-            return AVCaptureVideoOrientationPortraitUpsideDown;
-        case UIInterfaceOrientationLandscapeLeft:
-            return AVCaptureVideoOrientationLandscapeLeft;
-        case UIInterfaceOrientationLandscapeRight:
-            return AVCaptureVideoOrientationLandscapeRight;
-        default:
-            return AVCaptureVideoOrientationPortrait;
-   }
 }
 
 //--------------------------------------------------------------------------
@@ -928,8 +916,75 @@ parentViewController:(UIViewController*)parentViewController
     self.toolbar.items = items;
     [overlayView addSubview: self.toolbar];
 
-    UIImage* reticleImage = [self buildReticleImage];
-    self.reticleView = [[UIImageView alloc] initWithImage:reticleImage];
+    UIColor *color = [UIColor blackColor];
+    float alpha = 0.7;
+    //设置扫描区域外部上部的视图
+    UIView *topView = [[UIView alloc]init];
+    topView.frame = CGRectMake(0, 0,SCREENWidth,(SCREENHeight-QRCodeWidth)/2.0);
+    topView.backgroundColor = color;
+    topView.alpha = alpha;
+    //设置扫描区域外部左边的视图
+    UIView *leftView = [[UIView alloc]init];
+    leftView.frame = CGRectMake(0, topView.frame.size.height, (SCREENWidth-QRCodeWidth)/2.0,QRCodeWidth);
+    leftView.backgroundColor = color;
+    leftView.alpha = alpha;
+    //设置扫描区域外部右边的视图
+    UIView *rightView = [[UIView alloc]init];
+    rightView.frame = CGRectMake((SCREENWidth-QRCodeWidth)/2.0+QRCodeWidth,topView.frame.size.height, (SCREENWidth-QRCodeWidth)/2.0,QRCodeWidth);
+    rightView.backgroundColor = color;
+    rightView.alpha = alpha;
+
+    //设置扫描区域外部底部的视图
+    UIView *botView = [[UIView alloc]init];
+    botView.frame = CGRectMake(0, QRCodeWidth+topView.frame.size.height,SCREENWidth,SCREENHeight-44-QRCodeWidth-topView.frame.size.height);
+    botView.backgroundColor = color;
+    botView.alpha = alpha;
+    
+    [overlayView addSubview:topView];
+    [overlayView addSubview:leftView];
+    [overlayView addSubview:rightView];
+    [overlayView addSubview:botView];
+    
+    //设置扫描区域的位置(考虑导航栏和电池条的高度为64)
+    UIView *scanWindow = [[UIView alloc]initWithFrame:CGRectMake((SCREENWidth-QRCodeWidth)/2.0,(SCREENHeight-QRCodeWidth)/2.0,QRCodeWidth,QRCodeWidth)];
+    scanWindow.clipsToBounds = YES;
+    [overlayView addSubview:scanWindow];
+    //设置扫描区域的动画效果
+    NSURL *bundleURL = [[NSBundle mainBundle] URLForResource:@"CDVBarcodeScanner" withExtension:@"bundle"];
+    NSBundle *bundle = [NSBundle bundleWithURL:bundleURL];
+    
+    
+    UIImage *scan_net = [UIImage imageWithContentsOfFile:[bundle pathForResource:@"scan_net" ofType:@"png"]];
+    
+    CGFloat scanNetImageViewH = 241;
+    CGFloat scanNetImageViewW = scanWindow.frame.size.width;
+    UIImageView *scanNetImageView = [[UIImageView alloc]initWithImage:scan_net];
+    scanNetImageView.frame = CGRectMake(0, -scanNetImageViewH, scanNetImageViewW, scanNetImageViewH);
+    CABasicAnimation *scanNetAnimation = [CABasicAnimation animation];
+    scanNetAnimation.keyPath =@"transform.translation.y";
+    scanNetAnimation.byValue = @(QRCodeWidth);
+    scanNetAnimation.duration = 1.0;
+    scanNetAnimation.repeatCount = MAXFLOAT;
+    [scanNetImageView.layer addAnimation:scanNetAnimation forKey:nil];
+    [scanWindow addSubview:scanNetImageView];
+    //设置扫描区域的四个角的边框
+    CGFloat buttonWH = 18;
+    UIButton *topLeft = [[UIButton alloc]initWithFrame:CGRectMake(0,0, buttonWH, buttonWH)];
+
+    
+    [topLeft setImage:[UIImage imageWithContentsOfFile:[bundle pathForResource:@"scan_1" ofType:@"png"]]forState:UIControlStateNormal];
+    [scanWindow addSubview:topLeft];
+    UIButton *topRight = [[UIButton alloc]initWithFrame:CGRectMake(QRCodeWidth - buttonWH,0, buttonWH, buttonWH)];
+    [topRight setImage:[UIImage imageWithContentsOfFile:[bundle pathForResource:@"scan_2" ofType:@"png"]]forState:UIControlStateNormal];
+    [scanWindow addSubview:topRight];
+    UIButton *bottomLeft = [[UIButton alloc]initWithFrame:CGRectMake(0,QRCodeWidth - buttonWH+2, buttonWH, buttonWH)];
+    [bottomLeft setImage:[UIImage imageWithContentsOfFile:[bundle pathForResource:@"scan_3" ofType:@"png"]]forState:UIControlStateNormal];
+    [scanWindow addSubview:bottomLeft];
+    UIButton *bottomRight = [[UIButton alloc]initWithFrame:CGRectMake(QRCodeWidth-buttonWH,QRCodeWidth-buttonWH+2, buttonWH, buttonWH)];
+    [bottomRight setImage:[UIImage imageWithContentsOfFile:[bundle pathForResource:@"scan_4" ofType:@"png"]]forState:UIControlStateNormal];
+    [scanWindow addSubview:bottomRight];
+    
+    
 
     self.reticleView.opaque           = NO;
     self.reticleView.contentMode      = UIViewContentModeScaleAspectFit;
